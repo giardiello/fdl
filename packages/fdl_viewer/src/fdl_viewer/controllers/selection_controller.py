@@ -36,10 +36,10 @@ class SelectionController(QObject):
         Emitted when a complete selection is made (context, canvas, framing).
     """
 
-    contexts_updated = Signal(list)  # List of context labels
+    contexts_updated = Signal(list)  # List of (index, display_label) tuples
     canvases_updated = Signal(list)  # List of (canvas_id, label) tuples
     framings_updated = Signal(list)  # List of (fd_id, label) tuples
-    selection_complete = Signal(str, str, str)  # context_label, canvas_id, fd_id
+    selection_complete = Signal(int, str, str)  # context_index, canvas_id, fd_id
 
     def __init__(self, parent: QObject | None = None) -> None:
         """
@@ -72,27 +72,28 @@ class SelectionController(QObject):
             self.contexts_updated.emit([])
             return
 
-        labels = self._fdl_model.context_labels
-        self.contexts_updated.emit(labels)
+        contexts = self._fdl_model.contexts
+        context_list = [(i, ctx.label or str(i)) for i, ctx in enumerate(contexts)]
+        self.contexts_updated.emit(context_list)
 
         # Auto-select first if available
-        if labels:
-            self.select_context(labels[0])
+        if context_list:
+            self.select_context(context_list[0][0])
 
-    def select_context(self, label: str) -> None:
+    def select_context(self, index: int) -> None:
         """
-        Select a context by label.
+        Select a context by index.
 
         Parameters
         ----------
-        label : str
-            The context label to select.
+        index : int
+            The context index in the contexts array.
         """
         if self._fdl_model is None:
             return
 
-        self._fdl_model.set_context(label)
-        self._app_state.set_selection(label, "", "")
+        self._fdl_model.set_context(index)
+        self._app_state.set_selection(index, "", "")
         self._update_canvases()
 
     def _update_canvases(self) -> None:
@@ -122,8 +123,8 @@ class SelectionController(QObject):
             return
 
         self._fdl_model.set_canvas(canvas_id)
-        context_label = self._fdl_model._selected_context_label
-        self._app_state.set_selection(context_label, canvas_id, "")
+        context_index = self._fdl_model._selected_context_index
+        self._app_state.set_selection(context_index, canvas_id, "")
         self._update_framings()
 
     def _update_framings(self) -> None:
@@ -133,7 +134,21 @@ class SelectionController(QObject):
             return
 
         framings = self._fdl_model.framing_decisions
-        fd_list = [(fd.id, fd.label or fd.id) for fd in framings]
+
+        # Build framing_intent label lookup for display fallback
+        fi_labels: dict[str, str] = {}
+        if self._fdl_model and self._fdl_model.fdl:
+            for fi in self._fdl_model.fdl.framing_intents:
+                if fi.label:
+                    fi_labels[fi.id] = fi.label
+
+        def _resolve_label(fd: object) -> str:
+            if fd.label:
+                return fd.label
+            intent_label = fi_labels.get(fd.framing_intent_id, "")
+            return intent_label or fd.id
+
+        fd_list = [(fd.id, _resolve_label(fd)) for fd in framings]
         self.framings_updated.emit(fd_list)
 
         # Auto-select first if available
@@ -153,22 +168,22 @@ class SelectionController(QObject):
             return
 
         self._fdl_model.set_framing_decision(fd_id)
-        context_label = self._fdl_model._selected_context_label
+        context_index = self._fdl_model._selected_context_index
         canvas_id = self._fdl_model._selected_canvas_id
-        self._app_state.set_selection(context_label, canvas_id, fd_id)
-        self.selection_complete.emit(context_label, canvas_id, fd_id)
+        self._app_state.set_selection(context_index, canvas_id, fd_id)
+        self.selection_complete.emit(context_index, canvas_id, fd_id)
 
-    def get_current_selection(self) -> tuple[str, str, str]:
+    def get_current_selection(self) -> tuple[int, str, str]:
         """
         Get the current selection.
 
         Returns
         -------
         tuple
-            (context_label, canvas_id, framing_id)
+            (context_index, canvas_id, framing_id)
         """
         if self._fdl_model is None:
-            return ("", "", "")
+            return (-1, "", "")
         return self._fdl_model.selection_ids
 
     def get_selected_context(self) -> object:

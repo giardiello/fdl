@@ -4,8 +4,8 @@
  * @file fdl_geometry.h
  * @brief Internal geometry operations on the 4-layer FDL dimension hierarchy.
  *
- * Provides gap-filling, normalize+scale, rounding, offset, and cropping
- * operations used by the template application pipeline.
+ * Provides gap-filling, ratio-based normalize+scale, rounding, offset, and
+ * cropping operations used by the template application pipeline.
  */
 #ifndef FDL_GEOMETRY_INTERNAL_H
 #define FDL_GEOMETRY_INTERNAL_H
@@ -27,21 +27,48 @@ namespace fdl::detail {
 fdl_geometry_t geometry_fill_hierarchy_gaps(fdl_geometry_t geo, fdl_point_f64_t anchor_offset);
 
 /**
- * @brief Normalize and scale all 7 fields (4 dimensions + 3 anchors) of the geometry.
- * @param geo             Input geometry.
- * @param source_squeeze  Source anamorphic squeeze.
- * @param scale_factor    Uniform scale factor to apply.
- * @param target_squeeze  Target anamorphic squeeze.
+ * @brief Normalize and scale using a ratio (numerator/denominator) for precision.
+ *
+ * Computes (value * numerator) / denominator instead of value * (num/den) to
+ * preserve precision for integer inputs.
+ *
+ * @param geo              Input geometry.
+ * @param source_squeeze   Source anamorphic squeeze.
+ * @param scale_numerator  Numerator of the scale ratio.
+ * @param scale_denominator Denominator of the scale ratio.
+ * @param target_squeeze   Target anamorphic squeeze.
  * @return Normalized and scaled geometry.
  */
-fdl_geometry_t geometry_normalize_and_scale(
-    fdl_geometry_t geo, double source_squeeze, double scale_factor, double target_squeeze);
+fdl_geometry_t geometry_normalize_and_scale_ratio(
+    fdl_geometry_t geo, double source_squeeze, double scale_numerator, double scale_denominator, double target_squeeze);
 
 /**
- * @brief Round all 7 fields of the geometry using the given strategy.
- * @param geo       Input geometry.
+ * @brief Round canvas_dims and effective_dims; absorb deltas symmetrically.
+ *
+ * Per spec 7.4.12 "round" applies to canvas.dimensions.  The schema also
+ * types canvas.effective_dimensions as integer, so both are rounded here.
+ * Inner geometry (protection, framing dims and all anchors) remains float
+ * per the fractional-pixels model.
+ *
+ * Intended to run once at the end of the template pipeline (post-crop).
+ * The anchors at that point already encode all template intent (scale,
+ * alignment, padding, crop); the rounding deltas are pure schema-integer
+ * artifacts.  This function distributes those deltas symmetrically so no
+ * directional bias is introduced:
+ *
+ *   - canvas delta is absorbed by shifting ALL anchors by +delta/2
+ *     (content stays centered in the rounded canvas).
+ *   - effective delta is absorbed by shifting effective_anchor by -delta/2
+ *     (rounded effective rectangle stays centered on its pre-round extent).
+ *
+ * Hierarchy constraints are enforced post-round (effective >= ceil(max
+ * inner dims), effective <= canvas) and all anchors are clamped to
+ * [0, canvas - dim] so every layer stays inside the canvas.  At canvas
+ * boundaries the symmetric distribution degrades to one-sided via clamping.
+ *
+ * @param geo       Input geometry (typically post-crop with float fields).
  * @param strategy  Rounding strategy (even + mode).
- * @return Geometry with all fields rounded.
+ * @return Geometry with canvas/effective rounded and anchors compensated.
  */
 fdl_geometry_t geometry_round(fdl_geometry_t geo, fdl_round_strategy_t strategy);
 
