@@ -530,39 +530,36 @@ fdl_template_result_t apply_canvas_template(
     double const out_h = fdl_output_size_for_axis(
         geometry.canvas_dims.height, max_h, has_max_dims ? FDL_TRUE : FDL_FALSE, pad_to_max ? FDL_TRUE : FDL_FALSE);
 
-    // Spec 7.4.7: for fit_method "width"/"height", the non-fit axis of
-    // target_dimensions "should be automatically calculated by the
-    // application and not predefined by the user" — it is not a real,
-    // author-provided value. Using the raw, literal target_dimensions
-    // value for that axis in alignment_shift() (below) corrupts
-    // alignment/padding whenever that literal value doesn't match the
-    // actual output extent on that axis (e.g. a producer submitting a
-    // placeholder such as 0 for "the axis I don't care about"). Resolve
-    // it here to the axis's actual output size (out_w/out_h — the same
-    // value alignment_shift already treats as the canvas/pad extent for
-    // that axis) before it reaches alignment_shift, so alignment_method
-    // positions the fit content against the real output bounds instead of
-    // an arbitrary literal target value.
+    // Spec 7.4.4/7.4.7: for fit_method "width"/"height", the non-fit axis
+    // of target_dimensions is not a real, author-provided value — it "may
+    // be calculated by the application and not predefined by the user",
+    // dynamically adjusted from the fit_source aspect ratio. That
+    // dynamically-adjusted ("virtual") size is exactly the scaled,
+    // preserve-extended canvas immediately after scaling and before
+    // padding — already captured above as `scaled_bounding_box`
+    // (== geometry.canvas_dims post-scale). It equals the scaled
+    // fit_source size when preserve_from_source_canvas is absent or
+    // matches fit_source, and the larger preserve-extended size when it
+    // diverges (spec 7.4.9) — so no separate case-split is needed for
+    // preserve divergence.
     //
-    // This only applies when preserve_from_source_canvas is absent or
-    // equal to fit_source. Per spec 7.4.9, when preserve diverges from
-    // fit_source the output canvas may deliberately extend beyond
-    // target_dimensions to accommodate the preserved area — in that case
-    // target_dimensions is a genuine, load-bearing relative-target
-    // rectangle on both axes (not a placeholder), and must be used as
-    // literally authored.
+    // Per spec 7.4.11, pad_to_maximum always center-aligns this virtual
+    // rectangle within maximum_dimensions; alignment_method (7.4.8) only
+    // positions fit_source *inside* the virtual rectangle. Using the raw,
+    // literal target_dimensions value for the non-fit axis in
+    // alignment_shift() (below) instead of this virtual size corrupts
+    // that centering whenever the literal value doesn't match — e.g. a
+    // producer submitting a placeholder such as 0/1 for "the axis I'm not
+    // fitting by".
     //
     // fit_all/fill are unaffected: spec 7.4.4 requires both
     // target_dimensions values to be explicitly specified for those fit
     // methods, and both are load-bearing for calculate_scale_ratio there.
-    bool const preserve_diverges_from_fit = has_preserve && preserve_path != fit_source;
     fdl_dimensions_f64_t target_dims_resolved = target_dims;
-    if (!preserve_diverges_from_fit) {
-        if (fit_method == FDL_FIT_METHOD_WIDTH) {
-            target_dims_resolved.height = out_h;
-        } else if (fit_method == FDL_FIT_METHOD_HEIGHT) {
-            target_dims_resolved.width = out_w;
-        }
+    if (fit_method == FDL_FIT_METHOD_WIDTH) {
+        target_dims_resolved.height = scaled_bounding_box.height;
+    } else if (fit_method == FDL_FIT_METHOD_HEIGHT) {
+        target_dims_resolved.width = scaled_bounding_box.width;
     }
 
     bool const is_center_h = (h_align == FDL_HALIGN_CENTER);
