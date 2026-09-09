@@ -530,6 +530,41 @@ fdl_template_result_t apply_canvas_template(
     double const out_h = fdl_output_size_for_axis(
         geometry.canvas_dims.height, max_h, has_max_dims ? FDL_TRUE : FDL_FALSE, pad_to_max ? FDL_TRUE : FDL_FALSE);
 
+    // Spec 7.4.7: for fit_method "width"/"height", the non-fit axis of
+    // target_dimensions "should be automatically calculated by the
+    // application and not predefined by the user" — it is not a real,
+    // author-provided value. Using the raw, literal target_dimensions
+    // value for that axis in alignment_shift() (below) corrupts
+    // alignment/padding whenever that literal value doesn't match the
+    // actual output extent on that axis (e.g. a producer submitting a
+    // placeholder such as 0 for "the axis I don't care about"). Resolve
+    // it here to the axis's actual output size (out_w/out_h — the same
+    // value alignment_shift already treats as the canvas/pad extent for
+    // that axis) before it reaches alignment_shift, so alignment_method
+    // positions the fit content against the real output bounds instead of
+    // an arbitrary literal target value.
+    //
+    // This only applies when preserve_from_source_canvas is absent or
+    // equal to fit_source. Per spec 7.4.9, when preserve diverges from
+    // fit_source the output canvas may deliberately extend beyond
+    // target_dimensions to accommodate the preserved area — in that case
+    // target_dimensions is a genuine, load-bearing relative-target
+    // rectangle on both axes (not a placeholder), and must be used as
+    // literally authored.
+    //
+    // fit_all/fill are unaffected: spec 7.4.4 requires both
+    // target_dimensions values to be explicitly specified for those fit
+    // methods, and both are load-bearing for calculate_scale_ratio there.
+    bool const preserve_diverges_from_fit = has_preserve && preserve_path != fit_source;
+    fdl_dimensions_f64_t target_dims_resolved = target_dims;
+    if (!preserve_diverges_from_fit) {
+        if (fit_method == FDL_FIT_METHOD_WIDTH) {
+            target_dims_resolved.height = out_h;
+        } else if (fit_method == FDL_FIT_METHOD_HEIGHT) {
+            target_dims_resolved.width = out_w;
+        }
+    }
+
     bool const is_center_h = (h_align == FDL_HALIGN_CENTER);
     bool const is_center_v = (v_align == FDL_VALIGN_CENTER);
     double const af_h = alignment_factor_h(h_align);
@@ -540,7 +575,7 @@ fdl_template_result_t apply_canvas_template(
         scaled_fit_anchor.x,
         out_w,
         geometry.canvas_dims.width,
-        target_dims.width,
+        target_dims_resolved.width,
         is_center_h ? FDL_TRUE : FDL_FALSE,
         af_h,
         pad_to_max ? FDL_TRUE : FDL_FALSE);
@@ -549,7 +584,7 @@ fdl_template_result_t apply_canvas_template(
         scaled_fit_anchor.y,
         out_h,
         geometry.canvas_dims.height,
-        target_dims.height,
+        target_dims_resolved.height,
         is_center_v ? FDL_TRUE : FDL_FALSE,
         af_v,
         pad_to_max ? FDL_TRUE : FDL_FALSE);
