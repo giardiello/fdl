@@ -69,7 +69,7 @@
           },
           "effective_anchor_point": {
             "x": 0.0,
-            "y": 920.0
+            "y": 0.0
           },
           "anamorphic_squeeze": 1.0,
           "framing_decisions": [
@@ -83,7 +83,7 @@
               },
               "anchor_point": {
                 "x": 191.6546762589928,
-                "y": 1027.9136690647483
+                "y": 107.9136690647482
               },
               "protection_dimensions": {
                 "width": 3840.0,
@@ -91,14 +91,14 @@
               },
               "protection_anchor_point": {
                 "x": 0.0,
-                "y": 920.0
+                "y": 0.0
               }
             }
           ],
           "_scale_factor": 0.8633093525179856,
           "_content_translation": {
             "x": 0.0,
-            "y": 920.0
+            "y": 0.0
           },
           "_scaled_bounding_box": {
             "width": 3840.0,
