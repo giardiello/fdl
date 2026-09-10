@@ -530,10 +530,10 @@ fdl_template_result_t apply_canvas_template(
     double const out_h = fdl_output_size_for_axis(
         geometry.canvas_dims.height, max_h, has_max_dims ? FDL_TRUE : FDL_FALSE, pad_to_max ? FDL_TRUE : FDL_FALSE);
 
-    // Spec 7.4.4/7.4.7: for fit_method "width"/"height", the non-fit axis
-    // of target_dimensions is not a real, author-provided value — it "may
-    // be calculated by the application and not predefined by the user",
-    // dynamically adjusted from the fit_source aspect ratio. That
+    // Spec 7.4.4/7.4.7: whichever axis did NOT drive the scale ratio has a
+    // target_dimensions value that is not a real, author-provided value —
+    // it "may be calculated by the application and not predefined by the
+    // user", dynamically adjusted from the fit_source aspect ratio. That
     // dynamically-adjusted ("virtual") size is exactly the scaled,
     // preserve-extended canvas immediately after scaling and before
     // padding — already captured above as `scaled_bounding_box`
@@ -543,23 +543,67 @@ fdl_template_result_t apply_canvas_template(
     // diverges (spec 7.4.9) — so no separate case-split is needed for
     // preserve divergence.
     //
+    // This applies identically to fit_all/fill: they are not a distinct
+    // sizing model, just an automatic choice of *which* axis drives the
+    // scale (calculate_scale_ratio's w_ratio/h_ratio comparison below,
+    // mirroring that function's own selection logic) — once that axis is
+    // chosen, the other axis's target_dimensions is exactly as
+    // non-authoritative as it would be had the user picked that axis's
+    // fit_method explicitly. Spec 7.4.4's "both values must be specified"
+    // requirement for fit_all/fill is a schema/authoring necessity (the
+    // driving axis isn't known until scale time), not a signal that both
+    // remain literal after the driving axis is resolved.
+    //
     // Per spec 7.4.11, pad_to_maximum always center-aligns this virtual
     // rectangle within maximum_dimensions; alignment_method (7.4.8) only
     // positions fit_source *inside* the virtual rectangle. Using the raw,
-    // literal target_dimensions value for the non-fit axis in
+    // literal target_dimensions value for the non-driving axis in
     // alignment_shift() (below) instead of this virtual size corrupts
     // that centering whenever the literal value doesn't match — e.g. a
     // producer submitting a placeholder such as 0/1 for "the axis I'm not
     // fitting by".
-    //
-    // fit_all/fill are unaffected: spec 7.4.4 requires both
-    // target_dimensions values to be explicitly specified for those fit
-    // methods, and both are load-bearing for calculate_scale_ratio there.
+    double const w_ratio = target_norm.width / fit_norm.width;
+    double const h_ratio = target_norm.height / fit_norm.height;
+    bool width_drives_scale;
+    switch (fit_method) {
+    case FDL_FIT_METHOD_WIDTH:
+        width_drives_scale = true;
+        break;
+    case FDL_FIT_METHOD_HEIGHT:
+        width_drives_scale = false;
+        break;
+    case FDL_FIT_METHOD_FIT_ALL:
+        width_drives_scale = (w_ratio <= h_ratio);
+        break;
+    case FDL_FIT_METHOD_FILL:
+        width_drives_scale = (w_ratio >= h_ratio);
+        break;
+    default:
+        width_drives_scale = true;
+        break;
+    }
+    // The non-driving axis is only "virtual" (calculated) when it
+    // underflows — i.e. it needs padding to reach maximum_dimensions, or
+    // no adjustment at all. When it *overflows* maximum_dimensions (needs
+    // cropping — e.g. fit_method "fill" deliberately overflows the
+    // non-driving axis, or "width"/"height" can too when preserve extends
+    // far enough), target_dimensions is the real, load-bearing crop
+    // window: alignment_method genuinely determines which portion of the
+    // overflow is kept, and replacing it with the overflowing scaled size
+    // would collapse that gap to zero and silently disable cropping
+    // alignment (e.g. "right"/"bottom" would incorrectly behave like
+    // flush-left/top).
+    bool const width_would_crop = has_max_dims && (scaled_bounding_box.width > max_w);
+    bool const height_would_crop = has_max_dims && (scaled_bounding_box.height > max_h);
     fdl_dimensions_f64_t target_dims_resolved = target_dims;
-    if (fit_method == FDL_FIT_METHOD_WIDTH) {
-        target_dims_resolved.height = scaled_bounding_box.height;
-    } else if (fit_method == FDL_FIT_METHOD_HEIGHT) {
-        target_dims_resolved.width = scaled_bounding_box.width;
+    if (width_drives_scale) {
+        if (!height_would_crop) {
+            target_dims_resolved.height = scaled_bounding_box.height;
+        }
+    } else {
+        if (!width_would_crop) {
+            target_dims_resolved.width = scaled_bounding_box.width;
+        }
     }
 
     bool const is_center_h = (h_align == FDL_HALIGN_CENTER);
